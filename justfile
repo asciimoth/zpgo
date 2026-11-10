@@ -1,7 +1,5 @@
 set dotenv-load
 export GOTOOLCHAIN := "local"
-export GOPROXY := "off"
-export GOSUMDB := "off"
 export GOFLAGS := "-mod=readonly"
 
 default:

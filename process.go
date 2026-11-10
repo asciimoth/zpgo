@@ -24,10 +24,14 @@ func (n Node) Spawn(cmd *exec.Cmd) error {
 		defer func() { cmd.Env, cmd.ExtraFiles = env, files }()
 		childEnvironment := env
 		if childEnvironment == nil {
-			childEnvironment = cmd.Environ()
+			var err error
+			childEnvironment, err = defaultChildEnv(cmd)
+			if err != nil {
+				return err
+			}
 		}
-		// Cmd.Environ silently drops invalid entries. Preserve Start's rejection
-		// of NUL bytes, including entries that childEnv would remove.
+		// Preserve Start's rejection of NUL bytes, including entries that
+		// childEnv would remove.
 		if err := validateChildEnv(childEnvironment); err != nil {
 			return err
 		}

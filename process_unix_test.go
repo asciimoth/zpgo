@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func helperEnv(mode string) []string {
@@ -80,8 +82,8 @@ func runHelper(mode string) error {
 		if !ok || fd != 4 {
 			return fmt.Errorf("progress FD = %d (%v), want 4", fd, ok)
 		}
-		flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(fd), syscall.F_GETFL, 0)
-		if errno != 0 || flags&syscall.O_NONBLOCK == 0 {
+		flags, err := unix.FcntlInt(uintptr(fd), syscall.F_GETFL, 0)
+		if err != nil || flags&syscall.O_NONBLOCK == 0 {
 			return fmt.Errorf("child pipe is blocking")
 		}
 		input, err := io.ReadAll(os.Stdin)
@@ -598,6 +600,90 @@ func TestSpawnContextCancellation(t *testing.T) {
 	cancel()
 	if err := cmd.Wait(); err == nil {
 		t.Fatal("cancellation did not terminate process")
+	}
+}
+
+func TestSpawnDefaultEnvironment(t *testing.T) {
+	const key = "ZPGO_TEST_DEFAULT_ENV"
+	if os.Getenv(key) == "1" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if os.Getenv("PWD") != cwd {
+			t.Fatalf("PWD = %q, want %q", os.Getenv("PWD"), cwd)
+		}
+		if _, ok := os.LookupEnv("ZIG_PROGRESS"); ok {
+			t.Fatal("disabled node passed upstream progress environment")
+		}
+		return
+	}
+	t.Setenv(key, "1")
+	t.Setenv("ZIG_PROGRESS", "65535")
+	t.Setenv("GORACE", "atexit_sleep_ms=0")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestSpawnDefaultEnvironment$")
+	cmd.Dir = t.TempDir()
+	var output bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &output, &output
+	if err := (Node{}).Spawn(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("default environment: %v\n%s", err, &output)
+	}
+	if cmd.Env != nil {
+		t.Fatal("changed nil command environment")
+	}
+}
+
+func TestSpawnRejectsEnvironmentSetupError(t *testing.T) {
+	const key = "ZPGO_TEST_REMOVED_CWD"
+	if os.Getenv(key) != "1" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestSpawnRejectsEnvironmentSetupError$")
+		cmd.Env = append(os.Environ(), key+"=1", "GORACE=atexit_sleep_ms=0")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("environment setup: %v\n%s", err, output)
+		}
+		return
+	}
+
+	// Use a subprocess because the current directory belongs to the process.
+	p, _ := testReporter(t, Options{Manual: true})
+	n := p.Root().Start("worker", 0)
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(cwd)
+	if err := os.Remove(dir); err != nil {
+		t.Skipf("cannot remove current directory: %v", err)
+	}
+	for _, spawn := range []bool{false, true} {
+		cmd := exec.Command(os.Args[0], "-test.run=^$")
+		cmd.Dir = "."
+		if spawn {
+			err = n.Spawn(cmd)
+		} else {
+			err = cmd.Start()
+		}
+		if cmd.Process != nil {
+			_ = cmd.Wait()
+			t.Fatalf("spawn=%v: started despite failure to determine PWD", spawn)
+		}
+		if err == nil {
+			t.Fatalf("spawn=%v: lost environment setup error", spawn)
+		}
+		if cmd.Env != nil || n.s.child != nil {
+			t.Fatal("failed environment setup changed the command or attached a child")
+		}
 	}
 }
 

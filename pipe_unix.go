@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 func duplicateFile(file *os.File) (*pipeFile, error) {
@@ -25,31 +27,32 @@ func duplicateFile(file *os.File) (*pipeFile, error) {
 func duplicateFD(source int, inherited bool) (*pipeFile, error) {
 	// F_DUPFD keeps owned descriptors away from stdin/stdout/stderr, even if
 	// the application has closed them. ForkLock protects the CLOEXEC setup.
+	// Use the libc wrapper on systems that do not permit raw fcntl syscalls.
 	syscall.ForkLock.RLock()
-	fd, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(source), syscall.F_DUPFD, 3)
-	if errno == 0 {
-		syscall.CloseOnExec(int(fd))
+	fd, err := unix.FcntlInt(uintptr(source), syscall.F_DUPFD, 3)
+	if err == nil {
+		syscall.CloseOnExec(fd)
 	}
 	syscall.ForkLock.RUnlock()
-	if errno != 0 {
-		return nil, errno
+	if err != nil {
+		return nil, err
 	}
-	f := os.NewFile(fd, "zig-progress")
+	f := os.NewFile(uintptr(fd), "zig-progress")
 	var stat syscall.Stat_t
-	err := syscall.Fstat(int(fd), &stat)
+	err = syscall.Fstat(fd, &stat)
 	if err == nil && stat.Mode&syscall.S_IFMT != syscall.S_IFIFO {
 		err = fmt.Errorf("not a pipe")
 	}
 	if err == nil {
-		flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, fd, syscall.F_GETFL, 0)
-		if errno != 0 {
-			err = errno
+		flags, flagErr := unix.FcntlInt(uintptr(fd), syscall.F_GETFL, 0)
+		if flagErr != nil {
+			err = flagErr
 		} else if flags&syscall.O_ACCMODE == syscall.O_RDONLY {
 			err = fmt.Errorf("pipe is not writable")
 		}
 	}
 	if err == nil {
-		err = syscall.SetNonblock(int(fd), true)
+		err = syscall.SetNonblock(fd, true)
 	}
 	if err != nil {
 		_ = f.Close()
@@ -60,7 +63,7 @@ func duplicateFD(source int, inherited bool) (*pipeFile, error) {
 	if inherited {
 		syscall.CloseOnExec(source)
 	}
-	return &pipeFile{file: f, fd: int(fd)}, nil
+	return &pipeFile{file: f, fd: fd}, nil
 }
 
 func progressPipe() (*pipeFile, *os.File, error) {
@@ -75,13 +78,13 @@ func progressPipe() (*pipeFile, *os.File, error) {
 		// or the child's standard stream mappings can use our private pipe.
 		for i, fd := range fds {
 			if fd < 3 {
-				dup, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(fd), syscall.F_DUPFD, 3)
-				if errno != 0 {
-					err = errno
+				dup, dupErr := unix.FcntlInt(uintptr(fd), syscall.F_DUPFD, 3)
+				if dupErr != nil {
+					err = dupErr
 					break
 				}
 				_ = syscall.Close(fd)
-				fds[i] = int(dup)
+				fds[i] = dup
 			}
 			syscall.CloseOnExec(fds[i])
 		}

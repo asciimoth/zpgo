@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestProgressPipeClosedStandardStreams(t *testing.T) {
@@ -33,10 +35,10 @@ func TestProgressPipeClosedStandardStreams(t *testing.T) {
 				}
 				defer func(fd, saved int) {
 					_ = syscall.Close(fd)
-					dup, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(saved), syscall.F_DUPFD, uintptr(fd))
+					dup, err := unix.FcntlInt(uintptr(saved), syscall.F_DUPFD, fd)
 					_ = syscall.Close(saved)
-					if errno != 0 || int(dup) != fd {
-						t.Errorf("restore standard stream %d: descriptor %d, %v", fd, dup, errno)
+					if err != nil || dup != fd {
+						t.Errorf("restore standard stream %d: descriptor %d, %v", fd, dup, err)
 					}
 				}(fd, saved)
 			}
@@ -85,13 +87,13 @@ func TestProgressPipeClosedStandardStreams(t *testing.T) {
 			return
 		}
 		for _, fd := range []uintptr{uintptr(r.fd), w.Fd()} {
-			flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, fd, syscall.F_GETFD, 0)
-			if errno != 0 || flags&syscall.FD_CLOEXEC == 0 {
-				t.Fatalf("pipe descriptor %d is not close-on-exec: %v", fd, errno)
+			flags, err := unix.FcntlInt(fd, syscall.F_GETFD, 0)
+			if err != nil || flags&syscall.FD_CLOEXEC == 0 {
+				t.Fatalf("pipe descriptor %d is not close-on-exec: %v", fd, err)
 			}
-			flags, _, errno = syscall.Syscall(syscall.SYS_FCNTL, fd, syscall.F_GETFL, 0)
-			if errno != 0 || flags&syscall.O_NONBLOCK == 0 {
-				t.Fatalf("pipe descriptor %d is blocking: %v", fd, errno)
+			flags, err = unix.FcntlInt(fd, syscall.F_GETFL, 0)
+			if err != nil || flags&syscall.O_NONBLOCK == 0 {
+				t.Fatalf("pipe descriptor %d is blocking: %v", fd, err)
 			}
 		}
 		if _, err := syscall.Write(int(w.Fd()), []byte{42}); err != nil {

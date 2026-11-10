@@ -29,6 +29,15 @@
         "aarch64-linux"
       ];
       eachSystem = nixpkgs.lib.genAttrs systems;
+      goModulesFor =
+        system:
+        (nixpkgs.legacyPackages.${system}.buildGoModule {
+          pname = "zpgo";
+          version = "dev";
+          src = nixpkgs.lib.cleanSource ./.;
+          proxyVendor = true;
+          vendorHash = "sha256-C4gw9pPive9ItzLhRCsnpFGdqD4lx0pwi0Dc/G0OHBg=";
+        }).goModules;
     in
     {
       checks = eachSystem (
@@ -46,7 +55,7 @@
                 ];
                 src = pkgs.lib.cleanSource ./.;
                 GOTOOLCHAIN = "local";
-                GOPROXY = "off";
+                GOPROXY = "file://${goModulesFor system}";
                 GOSUMDB = "off";
                 GOFLAGS = "-mod=readonly";
                 ZPGO_REQUIRE_ZPG = "1";
@@ -94,7 +103,7 @@
               go-vet = {
                 enable = true;
                 name = "Go vet";
-                entry = "${pkgs.go}/bin/go vet ./...";
+                entry = "${pkgs.coreutils}/bin/env GOPROXY=file://${goModulesFor system} GOSUMDB=off ${pkgs.go}/bin/go vet ./...";
                 files = "(\\.go$|^go\\.(mod|sum)$)";
                 pass_filenames = false;
                 require_serial = true;
@@ -102,7 +111,7 @@
               go-test = {
                 enable = true;
                 name = "Go tests";
-                entry = "${pkgs.go}/bin/go test ./...";
+                entry = "${pkgs.coreutils}/bin/env GOPROXY=file://${goModulesFor system} GOSUMDB=off ${pkgs.go}/bin/go test ./...";
                 files = "(\\.go$|^go\\.(mod|sum)$)";
                 pass_filenames = false;
                 require_serial = true;
@@ -129,7 +138,7 @@
               ]
               ++ builtins.filter (p: p != pkgs.go) hook.enabledPackages;
               GOTOOLCHAIN = "local";
-              GOPROXY = "off";
+              GOPROXY = "file://${goModulesFor system}";
               GOSUMDB = "off";
               inherit (hook) shellHook;
             };

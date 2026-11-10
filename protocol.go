@@ -17,14 +17,15 @@ func wireName(name string, size int) string {
 		name = name[:i]
 	}
 	if len(name) <= size {
-		return name
+		return strings.Clone(name)
 	}
 	if utf8.ValidString(name) {
 		for !utf8.RuneStart(name[size]) {
 			size--
 		}
 	}
-	return name[:size]
+	// Do not retain a large caller buffer for a short task label.
+	return strings.Clone(name[:size])
 }
 
 func encode(records []record, nameSize int) []byte {

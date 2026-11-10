@@ -4,7 +4,7 @@
 subtasks, and child process progress to a supervisor such as
 [`zpg`](https://github.com/asciimoth/zpg).
 
-Requires Go 1.22 or later. There are no external Go dependencies.
+Requires Go 1.22 or later. Platform operations use `golang.org/x/sys`.
 Pipe reporting supports Linux, macOS, FreeBSD, OpenBSD, NetBSD, and DragonFly BSD.
 On other platforms, environment reporting is disabled; an explicit `File`
 returns `ErrUnsupported`.
@@ -159,6 +159,8 @@ Use one reporter per output pipe and always close it. `New` duplicates an
 explicit `File` and leaves ownership with the caller. It sets the pipe to
 nonblocking mode, which also affects other copies of that descriptor. An
 inherited environment descriptor is marked close-on-exec; it is not closed.
+Do not call `File.Fd` or change the pipe's blocking mode while reporting is
+active. These operations can make `Flush` and `Close` block on a full pipe.
 
 `Flush` does not wait for pipe space. It returns `ErrWouldBlock` if the current
 tree could not be sent in full. Retry later; partial packets finish before
@@ -189,6 +191,7 @@ Compatibility tests use `zpg --test` as an independent packet validator and
 `zpg --report` as a native child. They run when `zpg` is on PATH.
 `just test-compat` requires it and fails if it is missing. The Nix development
 shell and Nix Go checks include `zpg`.
+The Nix shell also supplies a local module proxy with the pinned Go dependency.
 
 Test helpers reject more than three child generations. On Linux with a systemd
 user session, use `just test-limited -race` to cap the whole test process tree

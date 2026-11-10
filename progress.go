@@ -38,6 +38,7 @@ type Options struct {
 	EstimatedTotalItems uint64
 	// File overrides ZIG_PROGRESS. It must be a writable pipe. New duplicates
 	// it; the caller retains ownership. The shared pipe becomes nonblocking.
+	// Do not call File.Fd or change its blocking mode while reporting is active.
 	File    *os.File
 	Disable bool
 	// Manual disables the update goroutine. Call Flush to collect and send reports.
