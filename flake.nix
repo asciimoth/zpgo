@@ -5,6 +5,11 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     git-hooks.url = "github:cachix/git-hooks.nix";
     git-hooks.inputs.nixpkgs.follows = "nixpkgs";
+    zpg = {
+      url = "github:asciimoth/zpg";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.git-hooks.follows = "git-hooks";
+    };
     # Keep the minimum supported Go version available for compatibility checks.
     nixpkgs-go122.url = "github:NixOS/nixpkgs/nixos-24.11";
   };
@@ -15,6 +20,7 @@
       nixpkgs,
       nixpkgs-go122,
       git-hooks,
+      zpg,
       ...
     }:
     let
@@ -36,12 +42,14 @@
                 nativeBuildInputs = [
                   go
                   pkgs.stdenv.cc
+                  zpg.packages.${system}.zpg
                 ];
                 src = pkgs.lib.cleanSource ./.;
                 GOTOOLCHAIN = "local";
                 GOPROXY = "off";
                 GOSUMDB = "off";
                 GOFLAGS = "-mod=readonly";
+                ZPGO_REQUIRE_ZPG = "1";
               }
               ''
                 export HOME="$TMPDIR"
@@ -117,6 +125,7 @@
               packages = [
                 go
                 pkgs.just
+                zpg.packages.${system}.zpg
               ]
               ++ builtins.filter (p: p != pkgs.go) hook.enabledPackages;
               GOTOOLCHAIN = "local";

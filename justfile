@@ -19,6 +19,15 @@ test-min:
 test-race:
     go test -race -count=1 ./...
 
+# Require the independent zpg protocol compatibility tests.
+test-compat:
+    ZPGO_REQUIRE_ZPG=1 go test -run '^TestZpgCompatibility$' -count=1 -timeout=60s ./...
+
+# Limit the complete test process tree (Linux with a systemd user session).
+[positional-arguments]
+test-limited *args:
+    systemd-run --user --scope --quiet -p MemoryMax=768M -p MemorySwapMax=0 -p TasksMax=96 env GOMAXPROCS=2 go test -p=2 -parallel=2 -timeout=60s "$@" ./...
+
 coverage:
     go test -coverprofile=coverage.out ./...
     go tool cover -func=coverage.out
