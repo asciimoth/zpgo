@@ -30,6 +30,13 @@ For a Python client library, see [`zppy`][zppy].
 
 ## Library usage
 
+If you use this library, [open an issue][issues] or [send a pull request][pulls]
+with a link to your project. This helps us track use of the Zig progress
+protocol outside the Zig toolchain.
+
+Add the [`zig-progress-protocol` topic][topic] to your GitHub repository. Use
+the same tag on other platforms so people can find related projects.
+
 ### Report tasks
 
 Save this example as `main.go` in your Go module:
@@ -286,6 +293,9 @@ the reporter.
 [spec]: https://andrewkelley.me/post/zig-new-cli-progress-bar-explained.html#the-zig-progress-protocol-specification
 [zpg]: https://github.com/asciimoth/zpg
 [zppy]: https://github.com/asciimoth/zppy
+[issues]: https://github.com/asciimoth/zpgo/issues
+[pulls]: https://github.com/asciimoth/zpgo/pulls
+[topic]: https://github.com/topics/zig-progress-protocol
 
 ## License
 
