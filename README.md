@@ -1,5 +1,7 @@
 # zpgo
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/asciimoth/zpgo.svg)][api]
+
 `zpgo` is a Go library that reports task progress through the Zig progress
 protocol. Use it to report tasks, subtasks, and progress from child processes.
 
