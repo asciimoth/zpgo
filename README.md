@@ -26,7 +26,8 @@ The protocol also works outside the Zig toolchain. For example,
 Use `zpgo` to send reports to `zpg` or another compatible receiver.
 
 See Andrew Kelley's [protocol specification][spec] for the protocol design.
-For a Python client library, see [`zppy`][zppy].
+For client libraries in other languages, see [`zppy`][zppy] (Python),
+[`zprs`][zprs] (Rust), and [`zpjs`][zpjs] (JavaScript).
 
 ![zpg displaying a task tree](https://raw.githubusercontent.com/asciimoth/zpg/master/demo.gif)
 
@@ -295,6 +296,8 @@ the reporter.
 [spec]: https://andrewkelley.me/post/zig-new-cli-progress-bar-explained.html#the-zig-progress-protocol-specification
 [zpg]: https://github.com/asciimoth/zpg
 [zppy]: https://github.com/asciimoth/zppy
+[zprs]: https://github.com/asciimoth/zprs
+[zpjs]: https://github.com/asciimoth/zpjs
 [issues]: https://github.com/asciimoth/zpgo/issues
 [pulls]: https://github.com/asciimoth/zpgo/pulls
 [topic]: https://github.com/topics/zig-progress-protocol
