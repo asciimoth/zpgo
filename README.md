@@ -282,11 +282,28 @@ still full. Final delivery is not guaranteed. If your application needs to
 deliver the report, retry `Flush` while the receiver is active before you close
 the reporter.
 
-## License
-
-Files in this repository use the [CC0 1.0 Universal license](LICENSE).
-
 [api]: https://pkg.go.dev/github.com/asciimoth/zpgo
 [spec]: https://andrewkelley.me/post/zig-new-cli-progress-bar-explained.html#the-zig-progress-protocol-specification
 [zpg]: https://github.com/asciimoth/zpg
 [zppy]: https://github.com/asciimoth/zppy
+
+## License
+
+Files in this repository are distributed under the [CC0 1.0 Universal license](LICENSE).
+
+<!-- markdownlint-disable MD033 -->
+<p xmlns:dct="http://purl.org/dc/terms/">
+  <a rel="license"
+     href="http://creativecommons.org/publicdomain/zero/1.0/">
+    <img src="http://i.creativecommons.org/p/zero/1.0/88x31.png"
+         style="border-style: none;" alt="CC0" />
+  </a>
+  <br />
+  To the extent possible under law,
+  <a rel="dct:publisher"
+     href="https://github.com/asciimoth">
+    <span property="dct:title">ASCIIMoth</span></a>
+  has waived all copyright and related or neighboring rights to
+  <span property="dct:title">zpgo</span>.
+</p>
+<!-- markdownlint-enable MD033 -->
