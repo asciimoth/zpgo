@@ -1,2 +1,3 @@
 # zpgo
-Zig progress protocol client library for golang
+
+Zig progress protocol client library for Go.
