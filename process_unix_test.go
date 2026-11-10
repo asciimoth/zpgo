@@ -499,6 +499,37 @@ func TestDescriptorLimit(t *testing.T) {
 	}
 }
 
+func TestInvalidEnvironmentLeavesNodeReusable(t *testing.T) {
+	p, _ := testReporter(t, Options{Manual: true})
+	n := p.Root().Start("worker", 0)
+	for _, fork := range []bool{false, true} {
+		for _, entry := range []string{"KEEP=bad\x00value", "ZIG_PROGRESS=3\x00"} {
+			cmd := helperCommand(t, "report")
+			cmd.Env = append(cmd.Env, entry)
+			if fork {
+				pid, err := n.ForkExec(cmd.Path, cmd.Args, &syscall.ProcAttr{Env: cmd.Env})
+				if err == nil {
+					_ = waitPID(pid)
+					t.Fatal("ForkExec accepted an invalid environment")
+				}
+			} else if err := n.Spawn(cmd); err == nil {
+				_ = cmd.Wait()
+				t.Fatal("Spawn accepted an invalid environment")
+			}
+			if n.s.child != nil {
+				t.Fatal("invalid environment attached a child")
+			}
+		}
+	}
+	cmd := helperCommand(t, "report")
+	if err := n.Spawn(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestEndAndCloseDoNotWaitForChild(t *testing.T) {
 	for _, closeReporter := range []bool{false, true} {
 		p, _ := testReporter(t, Options{Manual: true})

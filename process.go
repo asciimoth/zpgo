@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -21,7 +22,16 @@ func (n Node) Spawn(cmd *exec.Cmd) error {
 	return n.withChild(func(file *os.File) error {
 		env, files := cmd.Env, cmd.ExtraFiles
 		defer func() { cmd.Env, cmd.ExtraFiles = env, files }()
-		cmd.Env = childEnv(cmd.Environ(), -1)
+		childEnvironment := env
+		if childEnvironment == nil {
+			childEnvironment = cmd.Environ()
+		}
+		// Cmd.Environ silently drops invalid entries. Preserve Start's rejection
+		// of NUL bytes, including entries that childEnv would remove.
+		if err := validateChildEnv(childEnvironment); err != nil {
+			return err
+		}
+		cmd.Env = childEnv(childEnvironment, -1)
 		if file != nil {
 			fd := 3 + len(files)
 			if fd > 65535 {
@@ -63,9 +73,25 @@ func (n Node) withChild(start func(*os.File) error) error {
 }
 
 func childEnv(env []string, fd int) []string {
+	return childEnvCase(env, fd, runtime.GOOS == "windows")
+}
+
+func validateChildEnv(env []string) error {
+	if runtime.GOOS != "plan9" {
+		for _, item := range env {
+			if strings.IndexByte(item, 0) >= 0 {
+				return fmt.Errorf("zpgo: environment variable contains NUL")
+			}
+		}
+	}
+	return nil
+}
+
+func childEnvCase(env []string, fd int, caseInsensitive bool) []string {
 	result := make([]string, 0, len(env)+1)
 	for _, item := range env {
-		if !strings.HasPrefix(item, "ZIG_PROGRESS=") {
+		key, _, _ := strings.Cut(item, "=")
+		if key != "ZIG_PROGRESS" && !(caseInsensitive && strings.EqualFold(key, "ZIG_PROGRESS")) {
 			result = append(result, item)
 		}
 	}

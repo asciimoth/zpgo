@@ -22,6 +22,9 @@ func (n Node) ForkExec(argv0 string, argv []string, attr *syscall.ProcAttr) (int
 		if attr != nil {
 			child = *attr
 		}
+		if err := validateChildEnv(child.Env); err != nil {
+			return err
+		}
 		child.Env = childEnv(child.Env, -1)
 		child.Files = append([]uintptr(nil), child.Files...)
 		if file != nil {
