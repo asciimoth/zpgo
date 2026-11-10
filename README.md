@@ -37,12 +37,15 @@ for _, name := range []string{"assets", "code"} {
 }
 ```
 
-Run a program with a progress display:
+Run the combined example with a progress display:
 
 ```sh
-go build -o /tmp/zpgo-demo ./examples/demo
-zpg /tmp/zpgo-demo
+just run
 ```
+
+This example runs `zpg --mock` as a subprocess and a Go worker through
+`ForkExec`. Both report progress under `GO demo`. It requires `zpg` on `PATH`
+and a supported Unix platform.
 
 Without a usable `ZIG_PROGRESS` channel, task operations have no effect.
 The library does not print to stdout or stderr and does not draw a display.

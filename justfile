@@ -7,6 +7,15 @@ export GOFLAGS := "-mod=readonly"
 default:
     @just --list
 
+# Show the native subprocess and forked Go worker trees through zpg.
+run:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    demo_dir="$(mktemp -d)"
+    trap 'rm -rf "$demo_dir"' EXIT
+    go build -o "$demo_dir/demo" ./examples/demo
+    zpg --renderer tree "$demo_dir/demo"
+
 # Run all package tests. Extra arguments go to go test.
 [positional-arguments]
 test *args:
