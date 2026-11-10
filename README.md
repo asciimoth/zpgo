@@ -1,93 +1,160 @@
 # zpgo
 
-`zpgo` is a Go reporter for the Zig progress protocol. It sends tasks,
-subtasks, and child process progress to a supervisor such as
-[`zpg`](https://github.com/asciimoth/zpg).
+`zpgo` is a Go library that reports task progress through the Zig progress
+protocol. Use it to report tasks, subtasks, and progress from child processes.
 
-Requires Go 1.22 or later. Platform operations use `golang.org/x/sys`.
-Pipe reporting supports Linux, macOS, FreeBSD, OpenBSD, NetBSD, and DragonFly BSD.
-On other platforms, environment reporting is disabled; an explicit `File`
-returns `ErrUnsupported`.
+`zpgo` requires Go 1.22 or later. Pipe reporting supports Linux, macOS, FreeBSD,
+OpenBSD, NetBSD, and DragonFly BSD.
 
-## Install
+## Installation
 
 ```sh
 go get github.com/asciimoth/zpgo
 ```
 
-## Report tasks
+## Zig progress protocol
+
+The Zig progress protocol sends a task tree from a child process to its
+parent through a pipe. Tasks have names, completed item counts, and estimated
+totals. The `ZIG_PROGRESS` environment variable gives the pipe descriptor.
+A parent can merge task trees from its children into a single progress display.
+
+The protocol also works outside the Zig toolchain. For example,
+[`zpg`][zpg] can run your Go program and display its progress in a terminal.
+Use `zpgo` to send reports to `zpg` or another compatible receiver.
+
+See Andrew Kelley's [protocol specification][spec] for the protocol design.
+For a Python client library, see [`zppy`][zppy].
+
+![zpg displaying a task tree](https://raw.githubusercontent.com/asciimoth/zpg/master/demo.gif)
+
+## Library usage
+
+### Report tasks
+
+Save this example as `main.go` in your Go module:
 
 ```go
-p, err := zpgo.New(zpgo.Options{
-    RootName:            "build",
-    EstimatedTotalItems: 2,
-})
-if err != nil {
-    return err
-}
-defer p.Close()
+package main
 
-for _, name := range []string{"assets", "code"} {
-    task := p.Root().Start(name, 10)
-    for i := 0; i < 10; i++ {
-        // Do one item of work.
-        task.CompleteOne()
+import (
+    "log"
+    "time"
+
+    "github.com/asciimoth/zpgo"
+)
+
+func main() {
+    if err := run(); err != nil {
+        log.Fatal(err)
     }
-    task.End()
+}
+
+func run() error {
+    p, err := zpgo.New(zpgo.Options{
+        RootName:            "build",
+        EstimatedTotalItems: 2,
+    })
+    if err != nil {
+        return err
+    }
+    defer p.Close()
+
+    for _, name := range []string{"assets", "code"} {
+        task := p.Root().Start(name, 10)
+        for i := 0; i < 10; i++ {
+            time.Sleep(100 * time.Millisecond) // Replace with one item of work.
+            task.CompleteOne()
+        }
+        task.End()
+    }
+    return nil
 }
 ```
 
-Run the combined example with a progress display:
+With `zpg` on `PATH`, build and run the program:
 
 ```sh
-just run
+go build -o progress-demo .
+zpg ./progress-demo
 ```
 
-This example runs `zpg --mock` as a subprocess and a Go worker through
-`ForkExec`. Both report progress under `GO demo`. It requires `zpg` on `PATH`
-and a supported Unix platform.
+Each task can start child tasks. `End` removes the task and its descendants.
+It then completes one item in the parent task. Do not also call the parent's
+`CompleteOne` for the same child task. Use `defer task.End()` in functions that
+can return before the task is complete. Ending a task does not indicate success
+or failure.
 
-Without a usable `ZIG_PROGRESS` channel, task operations have no effect.
-The library does not print to stdout or stderr and does not draw a display.
+Without a usable `ZIG_PROGRESS` channel, the library disables reporting.
+Task updates then have no effect. The library does not print to stdout or
+stderr and does not draw a display.
 
-`End` removes the task and its descendants, then completes one item in its
-parent. Do not also call `CompleteOne` for the same task. Repeated `End` calls
-have no effect. Ending the root closes the reporter. These operations do not
-indicate success or failure.
+### Run the combined example
 
-## Child processes
+From the root directory of this repository, run:
 
-Configure an `exec.Cmd` normally. Call `Spawn` in place of `cmd.Start`, then
-call `cmd.Wait`:
+```sh
+go build -o /tmp/zpgo-demo ./examples/demo
+zpg --renderer tree /tmp/zpgo-demo
+```
+
+The [combined example](examples/demo/main.go) runs `zpg --mock` as a subprocess
+and a Go worker through `ForkExec`. Both report progress under `GO demo` and
+write messages to stdout and stderr. The example requires `zpg` on `PATH` and
+a supported Unix platform.
+
+### Child processes
+
+Use `Node.Spawn` to start a command with its own progress pipe. Configure an
+`exec.Cmd`, then call `Spawn` in place of `cmd.Start` or `cmd.Run`.
+For example, use this function with the reporter from the first example:
 
 ```go
-task := p.Root().Start("compile", 0)
-defer task.End()
+func runWorker(ctx context.Context, p *zpgo.Progress) error {
+    task := p.Root().Start("compile", 0)
+    defer task.End()
 
-cmd := exec.CommandContext(ctx, "worker", "--input", "source")
-cmd.Stdout = os.Stdout
-cmd.Stderr = os.Stderr
-if err := task.Spawn(cmd); err != nil {
-    return err
+    cmd := exec.CommandContext(ctx, "worker", "--input", "source")
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
+    if err := task.Spawn(cmd); err != nil {
+        return err
+    }
+    return cmd.Wait()
 }
-return cmd.Wait()
 ```
 
-Each process gets a separate nonblocking pipe. Its root replaces the task in
-reports; its descendants appear below that task. An empty child root name
-keeps the local task name. Before the first complete report, the local task
-state remains visible. After EOF or process exit, the last complete child tree
-remains until you end the task. Invalid child reports close that child's pipe
-and keep its last valid tree.
+This function also needs the `context`, `os`, and `os/exec` imports. Replace
+`worker` and its arguments with your command. In a Go worker, create a new
+reporter with `zpgo.New`. Workers in other languages can use any compatible
+protocol library.
 
-Use one process per active node. A second attachment returns
-`ErrProcessAttached`, even after the first process exits. A failed start leaves
-the node available. Ending a task or closing a reporter closes its child
-progress pipes; it does not wait for or terminate the processes.
+The child's root replaces the task in reports. The child's descendants appear
+below that task. If the child root name is empty, the local task name stays in
+use. Before the first complete child report, the local task state remains
+visible. After the child closes its pipe or exits, its last complete tree
+remains until you end the task. If a child report is invalid, the reporter
+closes that child's pipe and keeps its last valid tree.
+
+Wait for the process to exit, then end its task. Process exit does not end the
+task or indicate success or failure in the progress report. When you end a task
+or close a reporter, the library closes its child progress pipes. The library
+does not wait for or terminate the processes.
+
+Use a separate task for each process. Processes on different tasks can run at
+the same time, and child processes can start more child processes. If you
+attach a second process to the same active node, the method returns
+`ErrProcessAttached`, even after the first process exits. If a process fails
+to start, the node stays available.
+
+Automatic updates collect child reports. With `Manual: true`, call `Flush`
+regularly while children run. The receiver and all reporters in the process
+tree must use the same `NameSize`.
 
 `Spawn` preserves the command's standard streams, context, directory, and
-existing `ExtraFiles`. It copies `Env` and `ExtraFiles` for startup and restores
-both fields before return. It sets `ZIG_PROGRESS` only in the child environment.
+existing `ExtraFiles`. It copies `Env` and `ExtraFiles` to start the command.
+It restores both fields before it returns. It sets `ZIG_PROGRESS` only in the
+child environment.
 Disabled, ended, and closed nodes still start processes, with `ZIG_PROGRESS`
 removed. Do not explicitly pass the upstream descriptor to children.
 
@@ -95,111 +162,131 @@ removed. Do not explicitly pass the upstream descriptor to children.
 
 On the supported Unix platforms, `Node.ForkExec` has the same signature as
 `syscall.ForkExec`. It copies the process attributes and adds a private progress
-pipe. It returns a PID; the caller must reap the child, then end its task.
+pipe. It returns a process ID (PID). Wait for the child to exit, then end its
+task.
 
-```go
-pid, err := task.ForkExec(path, []string{path, "--worker"}, &syscall.ProcAttr{
-    Env:   os.Environ(),
-    Files: []uintptr{0, 1, 2},
-})
-if err != nil {
-    return err
-}
-var status syscall.WaitStatus
-for {
-    _, err = syscall.Wait4(pid, &status, 0, nil)
-    if err != syscall.EINTR {
-        break
-    }
-}
-// Check err and status before using the worker's result.
-```
+The [combined example](examples/demo/main.go) shows how to start a Go worker
+with `ForkExec`, wait with `syscall.Wait4`, and check the exit status.
 
-As in `syscall.ForkExec`, there is no PATH lookup. A nil environment is empty;
-omitted file descriptors are closed. Unlike `exec.Cmd`, `syscall.ForkExec` does
-not remove duplicate environment keys. Supply each key once.
+Like `syscall.ForkExec`, `Node.ForkExec` does not search `PATH` for the executable.
+A nil environment is empty. To inherit the environment, pass `os.Environ()`.
+Omitted file descriptors are closed. To keep the standard streams, use
+`Files: []uintptr{0, 1, 2}`. Supply each environment key once because
+`syscall.ForkExec` does not remove duplicate keys.
 
 The Go runtime does not support a raw `fork` followed by normal Go execution.
 To run a Go worker, fork and exec the current executable with a worker argument,
-then create a new reporter there. Nested `Spawn` and `ForkExec` calls combine
-their progress trees. The parent's reporter and environment stay unchanged.
+then create a new reporter in the worker. Nested `Spawn` and `ForkExec` calls
+combine their progress trees. The parent's reporter and environment stay
+unchanged.
 
-## Configuration and limits
+### API reference
+
+Call `zpgo.New(zpgo.Options{...})` to create a reporter, then use `p.Root()` to
+get its root task. See the [Go API documentation][api] for full signatures.
 
 | Option | Meaning |
 | --- | --- |
-| `RootName` | Root task label. |
-| `EstimatedTotalItems` | Root total. Zero means unknown. |
-| `File` | Explicit writable pipe; otherwise read `ZIG_PROGRESS`. |
+| `RootName` | Root task name. |
+| `EstimatedTotalItems` | Root task item estimate. Zero means unknown. |
+| `File` | Writable pipe to use. If omitted, read `ZIG_PROGRESS`. |
 | `Disable` | Disable reporting. |
 | `Manual` | Send and collect reports only when `Flush` is called. |
-| `RefreshInterval` | Time between reports; zero uses 80 ms. |
-| `InitialDelay` | Delay before the first report; zero starts immediately. |
-| `NameSize` | 120 by default; use 40 for the published format. |
+| `RefreshInterval` | Time between reports. Zero uses 80 ms. |
+| `InitialDelay` | Delay before the first report. Zero starts immediately. |
+| `NameSize` | Name size in bytes. Default: 120. Use 40 for published format. |
 
-The published [protocol specification][spec] uses 40-byte names.
-[`zppy`][zppy] and Zig 0.17 use 120-byte names. The protocol does not negotiate
-this size. Set it to match your supervisor and all child reporters.
+Timer durations must not be negative. `New` returns an error for invalid
+options or an unusable explicit `File`. A missing or unusable environment
+channel disables reporting without an error.
 
-Names stop at the first NUL and are truncated to the configured byte size.
+| Reporter method | Action |
+| --- | --- |
+| `Root()` | Get the root task. |
+| `Enabled()` | Check whether the progress channel is open. |
+| `Flush()` | Collect child reports and try to send the current tree. |
+| `Err()` | Get the first permanent output error, if any. |
+| `Close()` | Stop updates, try to send a final report, and release resources. |
+
+Always close the reporter. Use `defer p.Close()` to release its resources when
+the function returns. Ending the root task also closes the reporter. Closing
+the reporter does not set completed counts to their totals.
+See [pipe handling](#platforms-and-pipe-handling) for report delivery and error
+handling.
+
+| Node method | Action |
+| --- | --- |
+| `Start(name, total)` | Create a child task. Zero total means unknown. |
+| `Spawn(cmd)` | Start a command and collect its progress. |
+| `ForkExec(path, argv, attr)` | Fork and exec on supported Unix systems. |
+| `CompleteOne()` | Add one completed item. |
+| `Add(count)` | Add completed items. |
+| `SetCompletedItems(count)` | Set the completed count. |
+| `SetEstimatedTotalItems(count)` | Set the estimated total. |
+| `IncreaseEstimatedTotalItems(count)` | Add to the estimated total. |
+| `SetName(name)` | Change the task name. |
+| `End()` | Remove this branch and complete one item in its parent. |
+
+All task and reporter methods are safe for concurrent use. Repeated `End` calls
+and updates on ended nodes have no effect. `Spawn` and `ForkExec` still start
+processes on ended nodes. Do not copy a `Progress`. Copies of a `Node` value
+refer to the same task. Zero values are safe and disabled. Do not modify an
+`exec.Cmd` or its attributes while the command starts.
+
+## Technical details
+
+### Protocol compatibility and limits
+
+Names use 120 bytes by default. Set `NameSize: 40` for the format in the
+[published specification][spec]. The formats are not wire compatible, and the
+protocol does not negotiate the name size. Use the same name size for the
+receiver and all child reporters.
+
+Use one reporter per output pipe. Each report replaces the previous task tree.
+Multiple writers can overwrite each other's progress or mix packet bytes. Use
+`Spawn` or `ForkExec` to combine reports from separate processes through private
+pipes.
+
+Names stop at the first NUL and are shortened to the configured byte size.
 Valid UTF-8 names are not split within a character. Go strings can also carry
-raw name bytes. Completed counts saturate at `2^32-1`; totals saturate at
-`2^32-2`, because Zig reserves the next value for internal use.
+raw name bytes. Completed counts are limited to `2^32-1`. Totals are limited to
+`2^32-2` because Zig reserves the next value. The library reduces larger values
+to these limits. Completed counts can exceed totals.
 
-A report holds at most 253 nodes, including the root. `Start` returns a no-op
-node when local capacity is full. Local tasks have priority over imported
-child descendants. Ending tasks releases capacity, and old handles stay inert.
+A report holds at most 253 nodes, including the root. When local capacity is
+full, `Start` returns a node whose updates have no effect. Local tasks have
+priority over imported child descendants. Ending tasks releases capacity.
+Handles for ended tasks stay inactive.
 
-All task and reporter methods are safe for concurrent use. Do not copy a
-`Progress`; copied `Node` values refer to the same task. Zero values are safe
-and disabled. As with the standard library, do not modify an `exec.Cmd` or its
-attributes concurrently with startup.
+### Platforms and pipe handling
 
-Use one reporter per output pipe and always close it. `New` duplicates an
-explicit `File` and leaves ownership with the caller. It sets the pipe to
-nonblocking mode, which also affects other copies of that descriptor. An
-inherited environment descriptor is marked close-on-exec; it is not closed.
-Do not call `File.Fd` or change the pipe's blocking mode while reporting is
-active. These operations can make `Flush` and `Close` block on a full pipe.
+Pipe reporting supports Linux, macOS, FreeBSD, OpenBSD, NetBSD, and DragonFly
+BSD. On other platforms, the library disables reporting through `ZIG_PROGRESS`.
+If you supply an explicit `File` on those platforms, `New` returns
+`ErrUnsupported` unless you set `Disable: true`.
+
+`New` duplicates an explicit `File`. The caller still owns the original file.
+`New` sets the pipe to nonblocking mode, which also affects other copies of that
+descriptor. The library marks an inherited environment descriptor as
+close-on-exec but does not close it. While reporting is active, do not call
+`File.Fd` or change the pipe's blocking mode. These operations can make `Flush`
+and `Close` block on a full pipe.
 
 `Flush` does not wait for pipe space. It returns `ErrWouldBlock` if the current
-tree could not be sent in full. Retry later; partial packets finish before
-newer ones. A permanent write error disables reporting and is available through
-`Err`. `Close` stops automatic updates and attempts a final report. It returns
-`ErrWouldBlock` if the pipe is still full; final delivery is not guaranteed.
-Neither method sets completed counts to their totals.
+tree could not be sent in full. Try again later. The library finishes partial
+packets before it sends newer packets. A permanent write error disables
+reporting. Use `Err` to get that error.
 
-Nodes provide `Start`, `End`, `CompleteOne`, `Add`, `SetCompletedItems`,
-`SetEstimatedTotalItems`, `IncreaseEstimatedTotalItems`, and `SetName`.
-Use `go doc` for the full API.
+`Close` tries to send a final report. It returns `ErrWouldBlock` if the pipe is
+still full. Final delivery is not guaranteed. If your application needs to
+deliver the report, retry `Flush` while the receiver is active before you close
+the reporter.
 
-## Tests
+## License
 
-```sh
-just test
-just test-race
-just coverage
-just test-compat
-```
+Files in this repository use the [CC0 1.0 Universal license](LICENSE).
 
-The tests cover both wire formats, task lifetimes, counter limits, concurrent
-updates, full pipes, partial messages, invalid child trees, subprocess I/O,
-descriptor handling, cancellation, and nested spawn/fork-and-exec trees.
-Fuzz targets cover packet decoding and name truncation.
-
-Compatibility tests use `zpg --test` as an independent packet validator and
-`zpg --report` as a native child. They run when `zpg` is on PATH.
-`just test-compat` requires it and fails if it is missing. The Nix development
-shell and Nix Go checks include `zpg`.
-The Nix shell also supplies a local module proxy with the pinned Go dependency.
-
-Test helpers reject more than three child generations. On Linux with a systemd
-user session, use `just test-limited -race` to cap the whole test process tree
-at 768 MiB and 96 tasks, with no swap use.
-
-The implementation was checked against Zig's [`std.Progress`][zig-progress]
-and [`zppy`][zppy]. The package uses the CC0-1.0 license.
-
+[api]: https://pkg.go.dev/github.com/asciimoth/zpgo
 [spec]: https://andrewkelley.me/post/zig-new-cli-progress-bar-explained.html#the-zig-progress-protocol-specification
+[zpg]: https://github.com/asciimoth/zpg
 [zppy]: https://github.com/asciimoth/zppy
-[zig-progress]: https://github.com/ziglang/zig/blob/master/lib/std/Progress.zig
