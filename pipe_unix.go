@@ -71,8 +71,24 @@ func progressPipe() (*pipeFile, *os.File, error) {
 	syscall.ForkLock.RLock()
 	err := syscall.Pipe(fds[:])
 	if err == nil {
-		syscall.CloseOnExec(fds[0])
-		syscall.CloseOnExec(fds[1])
+		// A closed standard stream must stay closed. Otherwise ordinary I/O
+		// or the child's standard stream mappings can use our private pipe.
+		for i, fd := range fds {
+			if fd < 3 {
+				dup, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(fd), syscall.F_DUPFD, 3)
+				if errno != 0 {
+					err = errno
+					break
+				}
+				_ = syscall.Close(fd)
+				fds[i] = int(dup)
+			}
+			syscall.CloseOnExec(fds[i])
+		}
+		if err != nil {
+			_ = syscall.Close(fds[0])
+			_ = syscall.Close(fds[1])
+		}
 	}
 	syscall.ForkLock.RUnlock()
 	if err != nil {
