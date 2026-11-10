@@ -47,7 +47,8 @@ bench:
 build:
     go build ./...
 
-check: lint typos fmt-check test-race
+# Run all configured hooks and the race tests.
+check: hooks test-race
 
 lint:
     go vet ./...
