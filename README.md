@@ -29,7 +29,7 @@ See Andrew Kelley's [protocol specification][spec] for the protocol design.
 For client libraries in other languages, see [`zppy`][zppy] (Python),
 [`zprs`][zprs] (Rust), and [`zpjs`][zpjs] (JavaScript).
 
-![zpg displaying a task tree](https://raw.githubusercontent.com/asciimoth/zpg/master/demo.gif)
+![zpg displaying a task tree](https://vhs.charm.sh/vhs-5OKsqixxKTapPmjdIv2Qhf.gif)
 
 ## Library usage
 
